@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f3d2e">
+<meta name="robots" content="noindex, nofollow">
+<title>Gestão Attiva</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="v-carrega" class="centro"><div class="logo">ATTIVA</div><p>Carregando…</p></div>
+
+<div id="v-login" class="centro" hidden>
+  <div class="cartao">
+    <div class="logo">ATTIVA</div>
+    <p class="sub">Gestão &amp; Controle · Núcleo de Inteligência Tributária</p>
+    <p id="modo-local" class="aviso-local" hidden>Modo local de teste: os dados ficam só neste navegador.</p>
+    <form id="f-login" autocomplete="on">
+      <label for="l-email">E-mail</label><input id="l-email" name="email" type="email" autocomplete="username" required>
+      <label for="l-senha">Senha</label><input id="l-senha" name="senha" type="password" autocomplete="current-password" required>
+      <button type="submit" class="btn pri cheio">Entrar</button>
+      <button type="button" id="esqueci" class="link">Esqueci minha senha</button>
+    </form>
+    <form id="f-primeiro" hidden>
+      <h2>Primeiro acesso</h2>
+      <p class="dica">Ainda não existe administrador. Crie o seu usuário: ele terá acesso total e será quem libera os demais.</p>
+      <label for="p-nome">Seu nome</label><input id="p-nome" name="nome" required>
+      <label for="p-email">E-mail (será o login)</label><input id="p-email" name="email" type="email" autocomplete="username" required>
+      <label for="p-senha">Senha (mínimo 6 caracteres)</label><input id="p-senha" name="senha" type="password" autocomplete="new-password" minlength="6" required>
+      <label for="p-senha2">Repita a senha</label><input id="p-senha2" name="senha2" type="password" autocomplete="new-password" minlength="6" required>
+      <button type="submit" class="btn pri cheio">Criar administrador</button>
+    </form>
+    <p id="e-login" class="erro-form" role="alert"></p>
+  </div>
+</div>
+
+<div id="v-troca" class="centro" hidden>
+  <div class="cartao">
+    <div class="logo">ATTIVA</div>
+    <h2>Crie a sua senha</h2>
+    <p class="dica">É o seu primeiro acesso. Troque a senha provisória por uma que só você conheça.</p>
+    <form id="f-troca">
+      <label for="t-atual">Senha provisória</label><input id="t-atual" name="atual" type="password" autocomplete="current-password" required>
+      <label for="t-nova">Nova senha (mínimo 6 caracteres)</label><input id="t-nova" name="nova" type="password" autocomplete="new-password" minlength="6" required>
+      <label for="t-nova2">Repita a nova senha</label><input id="t-nova2" name="nova2" type="password" autocomplete="new-password" minlength="6" required>
+      <button type="submit" class="btn pri cheio">Salvar e entrar</button>
+      <button type="button" id="troca-sair" class="link">Sair</button>
+    </form>
+    <p id="e-troca" class="erro-form" role="alert"></p>
+  </div>
+</div>
+
+<div id="v-app" hidden>
+  <aside id="nav">
+    <div class="logo">ATTIVA</div>
+    <p class="sub">Gestão &amp; Controle</p>
+    <nav id="menu" aria-label="Menu principal"></nav>
+    <div class="nav-pe"><b id="u-nome"></b><span id="u-perfil"></span>
+      <div><button id="b-senha" class="link">Trocar senha</button> · <button id="b-sair" class="link">Sair</button></div>
+      <small id="versao"></small></div>
+  </aside>
+  <div id="corpo">
+    <header><button id="b-menu" class="btn mini" aria-label="Abrir menu">☰</button><h1 id="titulo"></h1><span id="sync" class="pill" role="status"></span></header>
+    <main id="main"></main>
+  </div>
+</div>
+<div id="toasts" aria-live="polite"></div>
+<script src="vendor/xlsx.full.min.js" defer></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

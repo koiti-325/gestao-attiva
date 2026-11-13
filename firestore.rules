@@ -1,0 +1,76 @@
+rules_version = '2';
+// Regras de segurança da Gestão Attiva: quem manda nas permissões é o servidor, não a tela.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function uref() { return /databases/$(database)/documents/usuarios/$(request.auth.uid); }
+    function ativo() { return request.auth != null && exists(uref()) && get(uref()).data.ativo == true; }
+    function admin() { return ativo() && get(uref()).data.perfil == 'admin'; }
+    // ms = módulos que liberam o acesso; a = ação (ver, criar, editar, excluir, exportar)
+    function pode(ms, a) {
+      let u = get(uref()).data;
+      return ativo() && (u.perfil == 'admin' || get(/databases/$(database)/documents/perfis/$(u.perfil)).data.idx[a].hasAny(ms));
+    }
+    function semSistema() { return !exists(/databases/$(database)/documents/config/sistema); }
+
+    match /config/sistema {
+      allow get: if true;                                  // só diz se o sistema já tem administrador
+      allow create: if request.auth != null && semSistema();
+      allow update: if admin();
+    }
+    match /config/{id} {
+      allow read: if ativo();
+      allow write: if admin() && id != 'sistema';
+    }
+    match /usuarios/{u} {
+      allow get: if request.auth != null && (request.auth.uid == u || admin());
+      allow list: if admin();
+      allow create: if admin() || (request.auth != null && request.auth.uid == u && semSistema() && request.resource.data.perfil == 'admin');
+      allow update: if admin() || (request.auth != null && request.auth.uid == u && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['trocarSenha', 'ultimoAcesso']));
+      allow delete: if admin();
+    }
+    match /perfis/{id} {
+      allow read: if ativo();
+      allow write: if admin();
+    }
+    match /empresas/{id} {
+      allow read: if pode(['empresas', 'carteiras', 'controle', 'simples', 'auditfiscal'], 'ver');
+      allow create: if pode(['empresas'], 'criar');
+      allow update: if pode(['empresas', 'simples'], 'editar');
+      allow delete: if pode(['empresas'], 'excluir');
+    }
+    match /funcionarios/{id} {
+      allow read: if pode(['equipe', 'empresas', 'carteiras', 'controle', 'simples', 'demandas', 'auditfiscal'], 'ver');
+      allow create: if pode(['equipe'], 'criar');
+      allow update: if pode(['equipe'], 'editar');
+      allow delete: if pode(['equipe'], 'excluir');
+    }
+    match /processos/{id} {
+      allow read: if pode(['controle'], 'ver');
+      allow write: if admin();
+    }
+    match /controle/{id} {
+      allow read: if pode(['controle'], 'ver');
+      allow create, update: if pode(['controle'], 'editar');
+      allow delete: if admin();
+    }
+    match /auditorias/{id} {
+      allow read: if pode(['auditfiscal', 'controle'], 'ver');
+      allow create, update: if pode(['auditfiscal'], 'editar');
+      allow delete: if admin();
+    }
+    match /demandas/{id} {
+      allow read: if pode(['demandas'], 'ver');
+      allow create: if pode(['demandas'], 'criar');
+      allow update: if pode(['demandas'], 'editar');
+      allow delete: if pode(['demandas'], 'excluir');
+    }
+    match /ferramentas/{id} {
+      allow read: if pode(['ferramentas'], 'ver');
+      allow write: if admin();
+    }
+    match /auditoria/{id} {                                // histórico de alterações: ninguém altera nem apaga
+      allow create: if ativo() && request.resource.data.uid == request.auth.uid;
+      allow read: if admin();
+    }
+  }
+}
