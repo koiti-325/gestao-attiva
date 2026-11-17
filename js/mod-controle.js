@@ -100,22 +100,22 @@ function radar(el) {
 function importarGclick(comp) {
   importarPlanilha({
     titulo: `Tarefas do G-Click · competência ${fmt.comp(comp)}`,
-    campos: [{ k: 'cli', label: 'Cliente (com CNPJ)', sin: ['Cliente', 'CNPJ', 'Empresa', 'Inscrição'], req: true }, { k: 'obr', label: 'Nome da tarefa / obrigação', sin: ['Nome', 'Obrigação', 'Tarefa', 'Obrigacao'], req: true }, { k: 'st', label: 'Status', sin: ['Status', 'Situação'], req: true }, { k: 'cmp', label: 'Competência (se houver)', sin: ['Competência', 'Competencia'] }, { k: 'dt', label: 'Data de conclusão', sin: ['Conclusão', 'Conclusao', 'Concluída em', 'Data conclusão', 'Data de conclusão'] }],
+    campos: [{ k: 'cli', label: 'Cliente (com CNPJ)', sin: ['Cliente', 'CNPJ', 'Empresa', 'Inscrição'], req: true }, { k: 'obr', label: 'Nome da tarefa / obrigação', sin: ['Assunto', 'Nome', 'Obrigação', 'Tarefa', 'Obrigacao'], req: true }, { k: 'st', label: 'Status', sin: ['Status', 'Situação'], req: true }, { k: 'cmp', label: 'Competência (se houver)', sin: ['Competência', 'Competencia'] }, { k: 'dt', label: 'Data de conclusão', sin: ['Conclusão', 'Conclusao', 'Concluída em', 'Data conclusão', 'Data de conclusão'] }],
     onImport: async linhas => {
       const ps = procs().map(p => ({ p, al: [p.nome, ...String(p.gclick || '').split(';')].map(norm).filter(Boolean) })), acc = new Map(), semObr = new Map(); let semEmp = 0, fora = 0;
       for (const l of linhas) {
-        if (l.cmp) { const c = l.cmp instanceof Date ? l.cmp.toISOString().slice(0, 7) : (String(l.cmp).match(/(\d{2})\/(\d{4})/) || []).slice(1).reverse().join('-'); if (c && c !== comp) { fora++; continue; } }
+        if (l.cmp) { const t = String(l.cmp).toUpperCase(), mm = t.match(/(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\w*\/(\d{4})/), c = l.cmp instanceof Date ? l.cmp.toISOString().slice(0, 7) : mm ? `${mm[2]}-${String(['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'].indexOf(mm[1]) + 1).padStart(2, '0')}` : (t.match(/(\d{2})\/(\d{4})/) || []).slice(1).reverse().join('-'); if (c && c !== comp) { fora++; continue; } }
         const ob = String(l.obr || '').trim(), hit = ps.find(x => x.al.includes(norm(ob))); if (!hit) { if (ob) semObr.set(ob, (semObr.get(ob) || 0) + 1); continue; }
-        const m = String(l.cli || '').match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/g), id = m ? digits(m.pop()) : digits(l.cli).padStart(14, '0');
+        const cli = String(l.cli || '').trim(), m = cli.match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/g), fim = cli.match(/(\d{11,14})\s*$/), id = m ? digits(m.pop()) : fim ? fim[1] : digits(cli); // CNPJ ou CPF no fim do texto
         if (!S.data.empresas.has(id)) { semEmp++; continue; }
-        const k = hit.p.id + '|' + id, o = acc.get(k) || acc.set(k, { p: hit.p, id, ok: true, dt: '' }).get(k);
-        if (/conclu/i.test(String(l.st))) o.dt = parseData(l.dt) || o.dt; else o.ok = false;
+        const k = hit.p.id + '|' + id, o = acc.get(k) || acc.set(k, { p: hit.p, id, ok: true, disp: true, dt: '' }).get(k), st = String(l.st);
+        if (/dispens/i.test(st)) { /* dispensada no G-Click */ } else if (/conclu|retific/i.test(st)) { o.disp = false; o.dt = parseData(l.dt) || o.dt; } else { o.ok = false; o.disp = false; }
       }
       const porProc = new Map(); let conc = 0, reab = 0;
       for (const o of acc.values()) {
         const cur = item(o.p, { id: o.id }, comp), s = cur?.s || 'P'; let it;
-        if (o.ok && s === 'P') { it = { s: 'C', d: o.dt || hoje(), u: 'G-Click', g: true }; conc++; }
-        else if (!o.ok && s === 'C' && cur.g) { it = { s: 'P', d: hoje(), u: 'G-Click', g: true }; reab++; } // reaberta no G-Click
+        if (o.ok && s === 'P') { it = { s: o.disp ? 'D' : 'C', d: o.dt || hoje(), u: 'G-Click', g: true }; conc++; }
+        else if (!o.ok && (s === 'C' || s === 'D') && cur.g) { it = { s: 'P', d: hoje(), u: 'G-Click', g: true }; reab++; } // reaberta no G-Click
         if (it) (porProc.get(o.p.id) || porProc.set(o.p.id, {}).get(o.p.id))[o.id] = it;
       }
       for (const [pid, itens] of porProc) store.set('controle', `${comp}__${pid}`, { comp, proc: pid, itens }, true);

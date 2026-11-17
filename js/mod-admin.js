@@ -118,6 +118,34 @@ function restaurar() {
   };
   inp.click();
 }
+// Traz os dados do artefato antigo (arquivo gerado pelo botão "Backup para o novo site")
+function migrarAntiga(b) {
+  if (b.app !== 'gestao-attiva-antiga' || !b.clientes) throw new Error('Este não é o backup da Gestão Attiva antiga.');
+  const ops = [], TIPO = { 'PRESTADORA': 'Prestadora', 'SERVIÇO': 'Serviço', 'COMÉRCIO': 'Comércio', 'COMÉRCIO/SERVIÇO': 'Comércio/Serviço' };
+  for (const [id, c] of Object.entries(b.clientes)) {
+    const e = { ...c, plan: { ...(c.plan || {}) } }, z = b.zeramento?.[id], x = b.exclusao?.[id];
+    if (e.area !== 'Fiscal' && e.area !== 'Planejamento') { e.areaAntiga = e.area || ''; e.area = ''; }
+    e.resp = Object.fromEntries(Object.entries(e.resp || {}).filter(([k, v]) => v && k === e.area));
+    if (z) { if (z.ultZerado) e.plan.zerAte = z.ultZerado; if (z.zerObs) e.plan.zerObs = z.zerObs; }
+    if (x) { e.plan.exc = x; e.plan.excObs = [x.excStatus, x.excDecisao, x.excResultado, x.excObs].filter(Boolean).join(' · '); if (!e.plan.meta && x.excMes) e.plan.meta = x.excMes; }
+    if (e.nivel && e.nivel.n != null) e.dificuldade = e.nivel.n;
+    if (TIPO[e.segmento]) e.tipo = TIPO[e.segmento];
+    if (!e.status) e.status = 'Ativo';
+    ops.push({ t: 'set', col: 'empresas', id, data: e });
+  }
+  for (const [id, f] of Object.entries(b.funcionarios || {})) ops.push({ t: 'set', col: 'funcionarios', id, data: { vinculo: 'CLT', ...f } });
+  if (b.config && Object.keys(b.config).length) ops.push({ t: 'set', col: 'config', id: 'antiga', data: b.config });
+  store.write(ops); audit('Lote', 'sistema', '', `Migração da Gestão Attiva antiga: ${Object.keys(b.clientes).length} empresas, ${Object.keys(b.funcionarios || {}).length} colaboradores`);
+  return `${Object.keys(b.clientes).length} empresas e ${Object.keys(b.funcionarios || {}).length} colaboradores trazidos do artefato antigo.`;
+}
+function importarAntiga() {
+  const m = modal({
+    titulo: 'Trazer dados da Gestão Attiva antiga', largo: true,
+    html: `<p>No artefato antigo, clique em <b>“Backup para o novo site”</b> (canto inferior direito). Ele salva o arquivo <b>backup-gestao-attiva-antiga.json</b> e também deixa copiar o conteúdo.</p><p><button type="button" class="btn pri" data-arq>Escolher o arquivo .json</button></p><p class="dica">Ou cole aqui o conteúdo copiado:</p><textarea rows="6" style="width:100%" aria-label="Conteúdo do backup"></textarea><p class="dica">Registros com o mesmo CNPJ são substituídos pelos do artefato antigo.</p>`,
+    botoes: [{ t: 'Cancelar' }, { t: 'Importar o texto colado', cls: 'pri', on: bg => { const t = $('textarea', bg).value.trim(); if (!t) { toast('Cole o conteúdo ou escolha o arquivo.', 'erro'); return false; } toast(migrarAntiga(JSON.parse(t))); } }],
+  });
+  $('[data-arq]', m.el).onclick = () => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json'; inp.onchange = async () => { try { toast(migrarAntiga(JSON.parse(await inp.files[0].text()))); m.close(); } catch (e) { toast(msgErro(e), 'erro'); } }; inp.click(); };
+}
 function rSistema(el) {
   const desenha = () => {
     const ub = localStorage.getItem('attiva.ultimoBackup'), p = S.config.pesos || [1, 15, 25, 37], nuvem = store.status.mode === 'nuvem';
@@ -125,11 +153,11 @@ function rSistema(el) {
       <p>${nuvem ? 'Cada alteração é gravada <b>na hora neste aparelho</b> e enviada para a <b>nuvem (Firebase)</b>. Sem internet, o aplicativo continua abrindo e gravando; ao reconectar, tudo é sincronizado sozinho. O indicador no topo mostra a situação.' : '<b>Modo local:</b> os dados estão só neste navegador, para testes. Conecte o Firebase (arquivo js/config.js) para ter login real, nuvem e sincronização entre aparelhos.'}</p>
       <p class="dica">Versão ${APP_VERSION} · ${S.data.empresas.size} empresas · ${S.data.funcionarios.size} colaboradores · ${S.data.usuarios.size} usuários</p></section>
       <section class="bloco"><h3 class="sec">BACKUP</h3><p>Último backup baixado neste aparelho: <b>${ub ? fmt.data(ub) : 'nunca'}</b>. O backup é um arquivo único com todos os cadastros e o histórico de controle.</p>
-      <p><button class="btn pri" data-bkp>Baixar backup completo</button> <button class="btn" data-rest>Restaurar de um backup…</button></p></section>
+      <p><button class="btn pri" data-bkp>Baixar backup completo</button> <button class="btn" data-rest>Restaurar de um backup…</button> <button class="btn" data-ant>Trazer dados da Gestão Attiva antiga…</button></p></section>
       <section class="bloco"><h3 class="sec">CONFIGURAÇÕES</h3><div class="form"><div class="campo full"><label for="cfg-g">Grupos (um por linha)</label><textarea id="cfg-g" rows="6">${esc((S.config.grupos || GRUPOS_PADRAO).join('\n'))}</textarea><small>Grupos em uso hoje: ${esc(grupos().join(' · '))}</small></div>
       ${[0, 1, 2, 3].map(i => `<div class="campo"><label for="cfg-p${i}">Carga · dificuldade ${i} (em prestadoras)</label><input id="cfg-p${i}" type="number" min="0" value="${p[i]}"></div>`).join('')}</div><p><button class="btn pri" data-cfg>Salvar configurações</button></p></section>`;
     $('[data-bkp]', el).onclick = () => fazerBackup().then(() => { toast('Backup baixado.'); desenha(); }).catch(e => toast(msgErro(e), 'erro'));
-    $('[data-rest]', el).onclick = restaurar;
+    $('[data-rest]', el).onclick = restaurar; $('[data-ant]', el).onclick = importarAntiga;
     $('[data-cfg]', el).onclick = () => { const cfg = { ...S.config, grupos: $('#cfg-g', el).value.split('\n').map(s => s.trim()).filter(Boolean), pesos: [0, 1, 2, 3].map(i => +$('#cfg-p' + i, el).value || 0) }; store.set('config', 'geral', cfg); audit('Alterou', 'config', 'geral', 'Configurações'); toast('Configurações salvas.'); };
   };
   desenha(); return () => { if (!el.contains(document.activeElement) || !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) desenha(); };
