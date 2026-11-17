@@ -74,7 +74,7 @@ function rPerfis(el) {
 }
 
 // ================= AUDITORIA =================
-const COL_NOME = { auditorias: 'Auditoria XML × EFD', empresas: 'Empresas', funcionarios: 'Equipe', processos: 'Obrigações', controle: 'Controle', demandas: 'Demandas', ferramentas: 'Ferramentas', usuarios: 'Usuários', perfis: 'Perfis', config: 'Configurações', sistema: 'Sistema' };
+const COL_NOME = {  auditorias: 'Auditoria XML × EFD', empresas: 'Empresas', funcionarios: 'Equipe', processos: 'Obrigações', controle: 'Controle', demandas: 'Demandas', ferramentas: 'Ferramentas', usuarios: 'Usuários', perfis: 'Perfis', config: 'Configurações', sistema: 'Sistema' };
 function rAuditoria(el) {
   let linhas = [];
   const detalhe = a => {
@@ -125,6 +125,8 @@ function migrarAntiga(b) {
   for (const [id, c] of Object.entries(b.clientes)) {
     const e = { ...c, plan: { ...(c.plan || {}) } }, z = b.zeramento?.[id], x = b.exclusao?.[id];
     if (e.area !== 'Fiscal' && e.area !== 'Planejamento') { e.areaAntiga = e.area || ''; e.area = ''; }
+    if (e.inat) { const i = e.inat; e.saida = { ultComp: i.ultComp || '', comunicadoEm: i.comunicadoEm || '', ci: i.ciInat || '', motivo: i.motivo || '' }; delete e.inat; } // saiu ou vai sair
+    if (/^inativ/i.test(e.status || '')) e.status = 'Inativo';
     e.resp = Object.fromEntries(Object.entries(e.resp || {}).filter(([k, v]) => v && k === e.area));
     if (z) { if (z.ultZerado) e.plan.zerAte = z.ultZerado; if (z.zerObs) e.plan.zerObs = z.zerObs; }
     if (x) { e.plan.exc = x; e.plan.excObs = [x.excStatus, x.excDecisao, x.excResultado, x.excObs].filter(Boolean).join(' · '); if (!e.plan.meta && x.excMes) e.plan.meta = x.excMes; }
@@ -136,7 +138,8 @@ function migrarAntiga(b) {
   for (const [id, f] of Object.entries(b.funcionarios || {})) ops.push({ t: 'set', col: 'funcionarios', id, data: { vinculo: 'CLT', ...f } });
   if (b.config && Object.keys(b.config).length) ops.push({ t: 'set', col: 'config', id: 'antiga', data: b.config });
   store.write(ops); audit('Lote', 'sistema', '', `Migração da Gestão Attiva antiga: ${Object.keys(b.clientes).length} empresas, ${Object.keys(b.funcionarios || {}).length} colaboradores`);
-  return `${Object.keys(b.clientes).length} empresas e ${Object.keys(b.funcionarios || {}).length} colaboradores trazidos do artefato antigo.`;
+  const sd = Object.values(b.clientes).filter(c => c.inat).length;
+  return `${Object.keys(b.clientes).length} empresas (${sd} com saída registrada) e ${Object.keys(b.funcionarios || {}).length} colaboradores trazidos do artefato antigo.`;
 }
 function importarAntiga() {
   const m = modal({
@@ -146,6 +149,28 @@ function importarAntiga() {
   });
   $('[data-arq]', m.el).onclick = () => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json'; inp.onchange = async () => { try { toast(migrarAntiga(JSON.parse(await inp.files[0].text()))); m.close(); } catch (e) { toast(msgErro(e), 'erro'); } }; inp.click(); };
 }
+// Formatar: apaga os dados escolhidos (usuários, perfis e histórico ficam). Sempre baixa um backup antes.
+const FORMATAVEIS = [['empresas', 'Empresas (com zeramento, exclusão e saídas)', 1], ['funcionarios', 'Equipe e férias', 1], ['controle', 'Obrigações marcadas (todas as competências)', 1], ['auditorias', 'Resultados da auditoria XML × EFD', 1], ['processos', 'Cadastro de obrigações', 0], ['demandas', 'Demandas entre setores', 0], ['ferramentas', 'Ferramentas', 0]];
+function formatar() {
+  modal({
+    titulo: 'Formatar base', largo: true,
+    html: `<p class="tx-verm">Apaga definitivamente os dados marcados, para recomeçar do zero (por exemplo, antes de trazer de novo os dados do artefato antigo).</p>
+      <div class="cols-exp">${FORMATAVEIS.map(([c, t, on]) => `<label class="chk"><input type="checkbox" data-fm="${c}" ${on ? 'checked' : ''}> ${esc(t)} (${c === 'controle' || c === 'auditorias' ? 'todos' : S.data[c]?.size || 0})</label>`).join('')}</div>
+      <p class="dica">Usuários, perfis de acesso e o histórico de alterações não são apagados. Antes de apagar, o sistema baixa automaticamente um backup completo, que pode ser restaurado nesta mesma tela.</p>
+      <div class="form"><div class="campo"><label for="fm-conf">Para confirmar, digite FORMATAR</label><input id="fm-conf" data-conf autocomplete="off"></div></div>`,
+    botoes: [{ t: 'Cancelar' }, {
+      t: 'Baixar backup e formatar', cls: 'perigo', on: async bg => {
+        if ($('[data-conf]', bg).value.trim().toUpperCase() !== 'FORMATAR') { toast('Digite FORMATAR para confirmar.', 'erro'); return false; }
+        const cols = $$('[data-fm]:checked', bg).map(x => x.dataset.fm); if (!cols.length) { toast('Marque o que deve ser apagado.', 'erro'); return false; }
+        if (store.status.mode === 'nuvem' && !navigator.onLine) { toast('Formatar precisa de internet.', 'erro'); return false; }
+        await fazerBackup();
+        const ops = []; for (const c of cols) { const ids = c === 'controle' || c === 'auditorias' ? (await store.list(c)).map(d => d.id) : [...S.data[c].keys()]; for (const id of ids) ops.push({ t: 'del', col: c, id }); }
+        store.write(ops); audit('Formatou', 'sistema', '', `Base formatada: ${cols.join(', ')} (${ops.length} registros apagados)`);
+        toast(`${ops.length} registros apagados. O backup foi baixado antes.`);
+      },
+    }],
+  });
+}
 function rSistema(el) {
   const desenha = () => {
     const ub = localStorage.getItem('attiva.ultimoBackup'), p = S.config.pesos || [1, 15, 25, 37], nuvem = store.status.mode === 'nuvem';
@@ -154,10 +179,11 @@ function rSistema(el) {
       <p class="dica">Versão ${APP_VERSION} · ${S.data.empresas.size} empresas · ${S.data.funcionarios.size} colaboradores · ${S.data.usuarios.size} usuários</p></section>
       <section class="bloco"><h3 class="sec">BACKUP</h3><p>Último backup baixado neste aparelho: <b>${ub ? fmt.data(ub) : 'nunca'}</b>. O backup é um arquivo único com todos os cadastros e o histórico de controle.</p>
       <p><button class="btn pri" data-bkp>Baixar backup completo</button> <button class="btn" data-rest>Restaurar de um backup…</button> <button class="btn" data-ant>Trazer dados da Gestão Attiva antiga…</button></p></section>
+      <section class="bloco"><h3 class="sec">FORMATAR BASE</h3><p>Apaga os dados escolhidos para começar de novo. Usuários, perfis e histórico continuam. Um backup completo é baixado antes, automaticamente.</p><p><button class="btn perigo" data-fmt>Formatar base…</button></p></section>
       <section class="bloco"><h3 class="sec">CONFIGURAÇÕES</h3><div class="form"><div class="campo full"><label for="cfg-g">Grupos (um por linha)</label><textarea id="cfg-g" rows="6">${esc((S.config.grupos || GRUPOS_PADRAO).join('\n'))}</textarea><small>Grupos em uso hoje: ${esc(grupos().join(' · '))}</small></div>
       ${[0, 1, 2, 3].map(i => `<div class="campo"><label for="cfg-p${i}">Carga · dificuldade ${i} (em prestadoras)</label><input id="cfg-p${i}" type="number" min="0" value="${p[i]}"></div>`).join('')}</div><p><button class="btn pri" data-cfg>Salvar configurações</button></p></section>`;
     $('[data-bkp]', el).onclick = () => fazerBackup().then(() => { toast('Backup baixado.'); desenha(); }).catch(e => toast(msgErro(e), 'erro'));
-    $('[data-rest]', el).onclick = restaurar; $('[data-ant]', el).onclick = importarAntiga;
+    $('[data-rest]', el).onclick = restaurar; $('[data-ant]', el).onclick = importarAntiga; $('[data-fmt]', el).onclick = formatar;
     $('[data-cfg]', el).onclick = () => { const cfg = { ...S.config, grupos: $('#cfg-g', el).value.split('\n').map(s => s.trim()).filter(Boolean), pesos: [0, 1, 2, 3].map(i => +$('#cfg-p' + i, el).value || 0) }; store.set('config', 'geral', cfg); audit('Alterou', 'config', 'geral', 'Configurações'); toast('Configurações salvas.'); };
   };
   desenha(); return () => { if (!el.contains(document.activeElement) || !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) desenha(); };

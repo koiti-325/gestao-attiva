@@ -63,8 +63,12 @@ export const funcNome = id => S.data.funcionarios.get(id)?.nome || '';
 export const respId = e => (e.area && e.resp?.[e.area]) || '';
 export const respNome = e => funcNome(respId(e));
 export const tipoRegime = e => { const r = norm(e.regime), g = norm(e.grupo); return r.includes('simples') ? 'Simples' : r.includes('real') ? 'Lucro Real' : r.includes('presumido') ? 'Lucro Presumido' : g.startsWith('lucro') || e.area === 'Planejamento' ? 'Lucro' : g.startsWith('simples') ? 'Simples' : ''; };
-export const precisaResp = e => e.status !== 'Inativo' && ((e.area === 'Fiscal' && !!e.grupo) || (e.area === 'Planejamento' && !!e.contrato));
-export const pendencia = e => e.status === 'Inativo' ? '' : !e.area ? 'Pendente de área' : (e.area === 'Fiscal' && !e.grupo) ? 'Pendente de grupo' : (precisaResp(e) && !respId(e)) ? 'Pendente de responsável' : '';
+// Saída de cliente: saida.ultComp = última competência feita pela Attiva. Depois dela a empresa sai do controle.
+export const saiu = (e, comp = compAtual()) => !!e.saida?.ultComp && e.saida.ultComp < comp;
+export const ativa = (e, comp) => e.status !== 'Inativo' && !saiu(e, comp);
+export const situacao = e => e.status === 'Inativo' ? 'Inativa' : saiu(e) ? 'Saiu' : e.saida ? 'Em saída' : 'Ativa';
+export const precisaResp = e => ativa(e) && ((e.area === 'Fiscal' && !!e.grupo) || (e.area === 'Planejamento' && !!e.contrato));
+export const pendencia = e => !ativa(e) ? '' : !e.area ? 'Pendente de área' : (e.area === 'Fiscal' && !e.grupo) ? 'Pendente de grupo' : (precisaResp(e) && !respId(e)) ? 'Pendente de responsável' : '';
 // sem área ou sem grupo (no Fiscal) = sem responsável; Planejamento não tem grupo
 export const ajustarEmpresa = e => {
   if (e.area === 'Planejamento') e.grupo = '';

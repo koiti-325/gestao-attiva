@@ -1,5 +1,5 @@
 // Mantém o aplicativo abrindo mesmo sem internet: guarda os arquivos do site no aparelho.
-const V = 'attiva-1.3.0';
+const V = 'attiva-1.4.0';
 const ARQ = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/config.js', 'js/core.js', 'js/store.js', 'js/grid.js', 'js/mod-controle.js', 'js/mod-gestao.js', 'js/mod-admin.js', 'js/mod-audit.js', 'js/audit.js', 'vendor/fflate.min.js', 'vendor/firebase.js', 'vendor/xlsx.full.min.js', 'vendor/exceljs.min.js', 'manifest.webmanifest', 'icons/icon.svg'];
 self.addEventListener('install', e => e.waitUntil(caches.open(V).then(c => c.addAll(ARQ)).then(() => self.skipWaiting())));
 self.addEventListener('activate', e => e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== V).map(k => caches.delete(k)))).then(() => self.clients.claim())));

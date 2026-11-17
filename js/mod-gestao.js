@@ -1,5 +1,5 @@
 // GESTÃO: Empresas, Carteiras, Equipe e Férias, Ferramentas.
-import { $, $$, esc, norm, digits, S, can, isAdmin, store, fmt, hoje, parseData, addAnos, addDias, diasAte, funcNome, respId, respNome, tipoRegime, pendencia, ajustarEmpresa, grupos, opcoes, funcsAtivos, gravar, excluir, gravarLote, toast, modal, confirmar, formModal, campoHtml, lerForm, xlsxAttiva, importarPlanilha, abas, quadro } from './core.js';
+import { ativa, situacao, saiu, compAtual, $, $$, esc, norm, digits, S, can, isAdmin, store, fmt, hoje, parseData, addAnos, addDias, diasAte, funcNome, respId, respNome, tipoRegime, pendencia, ajustarEmpresa, grupos, opcoes, funcsAtivos, gravar, excluir, gravarLote, toast, modal, confirmar, formModal, campoHtml, lerForm, xlsxAttiva, importarPlanilha, abas, quadro } from './core.js';
 import { Grid } from './grid.js';
 
 const st = { empresas: {}, equipe: {}, carteiras: {} }, grids = {};
@@ -16,11 +16,11 @@ const camposEmp = () => [
   { k: 'prioritario', label: 'Prioridade do financeiro', type: 'check', rot: 'Empresa prioritária' }, { k: 'ci', label: 'Nº C.I.' }, { k: 'ciData', label: 'Data ativação C.I.', type: 'date' },
   { k: 'contrato', label: 'Data do contrato', type: 'date' }, { k: 'respTec', label: 'Resp. técnica / Repasse', type: 'date' }, { k: 'cumulatividade', label: 'Cumulatividade' },
   { k: 'snSit', label: 'Situação Simples Nacional', type: 'select', options: ['Optante', 'Não optante', 'Excluída'] }, { k: 'snTxt', label: 'Detalhe da situação SN' }, { k: 'snConsulta', label: 'Consulta SN em', type: 'date' },
-  { k: 'status', label: 'Status', type: 'select', vazio: false, options: ['Ativo', 'Inativo'] }, { k: 'obs', label: 'Observação', type: 'textarea', full: true },
+  { k: 'status', label: 'Status', type: 'select', vazio: false, options: ['Ativo', 'Inativo'] }, { k: 'saidaUlt', label: 'Saída · última competência da Attiva', type: 'month', ajuda: 'Preencha quando o cliente sair. Depois dessa competência a empresa sai do controle.' }, { k: 'saidaCom', label: 'Saída · comunicada em', type: 'date' }, { k: 'saidaCi', label: 'Saída · Nº C.I. de inativação' }, { k: 'saidaMot', label: 'Saída · motivo / nova contabilidade', type: 'textarea', full: true }, { k: 'obs', label: 'Observação', type: 'textarea', full: true },
 ];
 function editarEmpresa(e) {
   const novo = !e, pode = can('empresas', novo ? 'criar' : 'editar');
-  const v = e ? { ...e, respF: respId(e), snSit: e.sn?.sit, snTxt: e.sn?.txt, snConsulta: e.sn?.consultaEm } : { status: 'Ativo', uf: 'GO' };
+  const v = e ? { ...e, respF: respId(e), snSit: e.sn?.sit, snTxt: e.sn?.txt, snConsulta: e.sn?.consultaEm, saidaUlt: e.saida?.ultComp, saidaCom: e.saida?.comunicadoEm, saidaCi: e.saida?.ci, saidaMot: e.saida?.motivo } : { status: 'Ativo', uf: 'GO' };
   const m = formModal({
     titulo: novo ? 'Nova empresa' : e.razao, campos: camposEmp(), valores: v, salvar: pode ? 'Salvar' : 'Fechar',
     extra: !novo && can('empresas', 'excluir') ? '<p><button type="button" class="btn perigo mini" data-del>Excluir empresa</button></p>' : '',
@@ -28,8 +28,9 @@ function editarEmpresa(e) {
       if (!pode) return;
       const id = novo ? digits(f.cnpj) || store.newId() : e.id;
       if (novo && S.data.empresas.has(id)) return 'Já existe uma empresa com este CNPJ.';
-      const { respF, snSit, snTxt, snConsulta, ...d } = f;
+      const { respF, snSit, snTxt, snConsulta, saidaUlt, saidaCom, saidaCi, saidaMot, ...d } = f;
       const doc = ajustarEmpresa({ ...(e ? semId(e) : { criadoEm: hoje() }), ...d, cnpj: digits(f.cnpj), dificuldade: f.dificuldade === '' ? '' : +f.dificuldade, resp: f.area && respF ? { [f.area]: respF } : {}, sn: { ...(e?.sn || {}), sit: snSit, txt: snTxt, consultaEm: snConsulta } });
+      if (saidaUlt || saidaCom || saidaMot) doc.saida = { ultComp: saidaUlt, comunicadoEm: saidaCom, ci: saidaCi, motivo: saidaMot }; else delete doc.saida;
       gravar('empresas', id, doc, doc.razao); toast('Empresa salva.');
     },
   });
@@ -80,19 +81,20 @@ const colsEmp = () => [
   { key: 'regime', label: 'Regime' }, { key: 'area', label: 'Área' }, { key: 'grupo', label: 'Grupo' }, { key: 'resp', label: 'Responsável', get: respNome }, { key: 'segmento', label: 'Segmento' },
   { key: 'prior', label: 'Prioridade', get: e => e.prioritario ? 'Sim' : 'Não' }, { key: 'ci', label: 'Nº C.I.' }, { key: 'ciData', label: 'Ativação C.I.', get: e => fmt.data(e.ciData), sort: e => e.ciData || '' },
   { key: 'contrato', label: 'Contrato', get: e => fmt.data(e.contrato), sort: e => e.contrato || '' }, { key: 'respTec', label: 'Resp. téc./Repasse', get: e => fmt.data(e.respTec), sort: e => e.respTec || '' },
-  { key: 'sn', label: 'Situação SN', get: e => e.sn?.txt || e.sn?.sit || '' }, { key: 'status', label: 'Status', get: e => e.status || 'Ativo' },
+  { key: 'sn', label: 'Situação SN', get: e => e.sn?.txt || e.sn?.sit || '' }, { key: 'status', label: 'Situação', get: situacao, html: e => { const s = situacao(e); return s === 'Ativa' ? 'Ativa' : `<span class="tag ${s === 'Em saída' ? 'ouro' : 'verm'}">${s}</span>`; } },
+  { key: 'ultComp', label: 'Última comp. (saída)', get: e => fmt.comp(e.saida?.ultComp), sort: e => e.saida?.ultComp || '' }, { key: 'saidaMot', label: 'Motivo da saída', w: 200, get: e => e.saida?.motivo || '' },
   { key: 'pend', label: 'Pendência', get: pendencia, html: e => { const p = pendencia(e); return p ? `<span class="tag verm">${esc(p)}</span>` : ''; } },
 ];
 function gridEmpresas(el, id, filtro, titulo, comQuadros) {
   const g = grids[id] ||= new Grid({
-    titulo, arquivo: titulo, cols: colsEmp, rows: () => emps().filter(filtro), onRow: editarEmpresa, exportar: can('empresas', 'exportar'), rowCls: e => e.status === 'Inativo' ? 'inativo' : '',
+    titulo, arquivo: titulo, cols: colsEmp, rows: () => emps().filter(filtro), onRow: editarEmpresa, exportar: can('empresas', 'exportar'), rowCls: e => ativa(e) ? '' : 'inativo',
     acoes: [...(can('empresas', 'criar') ? [{ t: '+ Nova empresa', cls: 'pri', on: () => editarEmpresa() }, { t: 'Importar planilha', on: importarEmpresas }] : [])],
     lote: [...(can('empresas', 'editar') ? [{ t: 'Alterar em lote', on: loteEmpresas }] : []), ...(can('empresas', 'excluir') ? [{ t: 'Excluir selecionadas', cls: 'perigo', on: async ids => { if (await confirmar(`Excluir ${ids.length} empresas?`, 'Excluir')) gravarLote('empresas', ids.map(i => [i, null]), 'Exclusão em lote'); } }] : [])],
   });
   el.innerHTML = `${comQuadros ? '<div class="quadros"></div>' : ''}<div class="gr"></div>`; g.mount($('.gr', el));
   const quadros = () => {
-    if (!comQuadros) return; const l = emps().filter(e => e.status !== 'Inativo'), n = f => l.filter(f).length, at = k => g.f.pend?.has(k) ? 'on' : '';
-    $('.quadros', el).innerHTML = quadro('Empresas ativas', l.length) + quadro('Na Rotina (Fiscal)', n(e => e.area === 'Fiscal')) + quadro('No Planejamento', n(e => e.area === 'Planejamento')) + quadro('Prioritárias', n(e => e.prioritario), { cls: 'ouro' })
+    if (!comQuadros) return; const tudo = emps(), l = tudo.filter(e => ativa(e)), n = f => l.filter(f).length, at = k => g.f.pend?.has(k) ? 'on' : '';
+    $('.quadros', el).innerHTML = quadro('Empresas ativas', l.length) + quadro('Na Rotina (Fiscal)', n(e => e.area === 'Fiscal')) + quadro('No Planejamento', n(e => e.area === 'Planejamento')) + quadro('Prioritárias', n(e => e.prioritario), { cls: 'ouro' }) + quadro('Em saída', n(e => !!e.saida), { cls: 'ouro', sub: 'ainda no controle' }) + quadro('Saíram', tudo.filter(e => saiu(e)).length, { sub: 'fora do controle' })
       + ['Pendente de responsável', 'Pendente de grupo', 'Pendente de área'].map(k => quadro(k, n(e => pendencia(e) === k), { k, cls: 'alerta ' + at(k) })).join('');
     $$('[data-q]', el).forEach(b => b.onclick = () => { const k = b.dataset.q; if (g.f.pend?.has(k)) delete g.f.pend; else g.f.pend = new Set([k]); g.page = 1; g.refresh(); quadros(); });
   };
@@ -102,6 +104,7 @@ const rEmpresas = el => abas(el, [
   { id: 'gerais', t: 'Empresas gerais', fn: c => gridEmpresas(c, 'eg', () => true, 'Empresas gerais', true) },
   { id: 'rotina', t: 'Empresas na Rotina', fn: c => gridEmpresas(c, 'er', e => e.area === 'Fiscal', 'Empresas na Rotina') },
   { id: 'plan', t: 'Empresas no Planejamento', fn: c => gridEmpresas(c, 'ep', e => e.area === 'Planejamento', 'Empresas no Planejamento') },
+  { id: 'saidas', t: 'Saídas de clientes', fn: c => gridEmpresas(c, 'es', e => !!e.saida || e.status === 'Inativo', 'Saídas de clientes') },
 ], st.empresas);
 
 // ================= CARTEIRAS =================
@@ -109,7 +112,7 @@ const peso = e => { const p = S.config.pesos || [1, 15, 25, 37]; return e.tipo =
 function carteiras(por) {
   const m = new Map();
   for (const e of emps()) {
-    if (e.status === 'Inativo' || !e.area) continue;
+    if (!ativa(e) || !e.area) continue;
     const k = por === 'grupo' ? (e.grupo || (e.area === 'Planejamento' ? 'Planejamento' : '(sem grupo)')) : (respId(e) || '(sem responsável)');
     if (!m.has(k)) m.set(k, { id: k, nome: por === 'grupo' ? k : (funcNome(k) || 'Sem responsável'), grupo: por === 'grupo' ? '' : (S.data.funcionarios.get(k)?.grupo || ''), l: [] });
     m.get(k).l.push(e);
@@ -163,7 +166,7 @@ function gridFuncs(el) {
   const g = grids.func ||= new Grid({
     titulo: 'Equipe', rows: funcs, onRow: editarFunc, exportar: can('equipe', 'exportar'), rowCls: f => f.ativo === false ? 'inativo' : '',
     cols: [{ key: 'nome', label: 'Nome', w: 180, html: f => `<b>${esc(f.nome)}</b>${f.lider ? ` <span class="tag ouro">Líder</span>` : ''}` }, { key: 'admissao', label: 'Admissão', get: f => fmt.data(f.admissao), sort: f => f.admissao || '' }, { key: 'email', label: 'E-mail' }, { key: 'setor', label: 'Setor' }, { key: 'grupo', label: 'Grupo' }, { key: 'vinculo', label: 'Vínculo', get: f => f.vinculo || 'CLT' },
-      { key: 'emp', label: 'Empresas', cls: 'num', get: f => emps().filter(e => e.status !== 'Inativo' && respId(e) === f.id).length },
+      { key: 'emp', label: 'Empresas', cls: 'num', get: f => emps().filter(e => ativa(e) && respId(e) === f.id).length },
       ...FERR.map(x => ({ key: 'f_' + x, label: x, get: f => rotFerr(f.ferr?.[x]), html: f => f.ferr?.[x] === 'pendente' ? '<span class="tag verm">Pendente</span>' : esc(rotFerr(f.ferr?.[x])) })), { key: 'ativo', label: 'Ativo', get: f => f.ativo === false ? 'Não' : 'Sim' }, { key: 'obs', label: 'Observação', w: 200 }],
     acoes: can('equipe', 'criar') ? [{ t: '+ Novo colaborador', cls: 'pri', on: () => editarFunc() }, { t: 'Importar planilha', on: importarFuncs }] : [],
   });

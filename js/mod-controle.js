@@ -1,5 +1,5 @@
 // CONTROLE: Painel, Obrigações por competência, Zeramento/Exclusão do Simples, Demandas entre setores.
-import { $, $$, esc, norm, digits, parseData, importarPlanilha, S, can, isAdmin, store, fmt, hoje, mesAtual, compAdd, compAtual, compDiff, funcNome, respId, respNome, tipoRegime, pendencia, funcsAtivos, gravar, excluir, gravarLote, audit, toast, modal, confirmar, formModal, xlsxAttiva, abas, quadro, assinarControle, assinarComp, audsDe, nivelAud } from './core.js';
+import { ativa, $, $$, esc, norm, digits, parseData, importarPlanilha, S, can, isAdmin, store, fmt, hoje, mesAtual, compAdd, compAtual, compDiff, funcNome, respId, respNome, tipoRegime, pendencia, funcsAtivos, gravar, excluir, gravarLote, audit, toast, modal, confirmar, formModal, xlsxAttiva, abas, quadro, assinarControle, assinarComp, audsDe, nivelAud } from './core.js';
 import { Grid } from './grid.js';
 import { ferias, ferrVisiveis, cartoesFerr } from './mod-gestao.js';
 
@@ -10,20 +10,20 @@ const REGIMES = ['Simples Nacional', 'Lucro Presumido', 'Lucro Real'];
 
 // ================= OBRIGAÇÕES =================
 const procs = () => [...S.data.processos].map(([id, p]) => ({ id, ...p })).filter(p => p.ativo !== false).sort((a, b) => (a.ordem || 0) - (b.ordem || 0) || a.nome.localeCompare(b.nome));
-const aplica = (p, e) => {
-  if (e.status === 'Inativo' || e.area !== 'Fiscal' || (p.exigeIE && !e.ie)) return false;
+const aplica = (p, e, comp = st.controle.comp) => {
+  if (!ativa(e, comp) || e.area !== 'Fiscal' || (p.exigeIE && !e.ie)) return false;
   const t = tipoRegime(e), rs = p.regimes || []; if (!rs.length) return true;
   return t === 'Lucro' ? rs.some(r => r.startsWith('Lucro')) : rs.includes(t === 'Simples' ? 'Simples Nacional' : t);
 };
 const venc = (p, comp) => { if (!p.vencDia) return ''; const m = compAdd(comp, 1), [y, mm] = m.split('-').map(Number); return `${m}-${String(Math.min(p.vencDia, new Date(y, mm, 0).getDate())).padStart(2, '0')}`; };
 const item = (p, e, comp) => S.data.controle.get(`${comp}__${p.id}`)?.itens?.[e.id];
-const sit = (p, e, comp) => { if (!aplica(p, e)) return '—'; const s = item(p, e, comp)?.s; if (s === 'C') return 'Concluída'; if (s === 'V') return 'Conferida'; if (s === 'E') return 'Com erro'; if (s === 'D') return 'Dispensada'; const v = venc(p, comp); return v && hoje() > v ? 'Atrasada' : 'Pendente'; };
+const sit = (p, e, comp) => { if (!aplica(p, e, comp)) return '—'; const s = item(p, e, comp)?.s; if (s === 'C') return 'Concluída'; if (s === 'V') return 'Conferida'; if (s === 'E') return 'Com erro'; if (s === 'D') return 'Dispensada'; const v = venc(p, comp); return v && hoje() > v ? 'Atrasada' : 'Pendente'; };
 const CLS = { 'Concluída': 'verde', 'Conferida': 'conf', 'Com erro': 'erro', 'Dispensada': 'azul', 'Atrasada': 'verm', 'Pendente': 'cinza' };
 const FEITA = new Set(['Concluída', 'Conferida', 'Dispensada']), SIT_NOME = { P: 'Pendente', C: 'Concluída', V: 'Conferida', E: 'Com erro', D: 'Dispensada' };
 // conferência (V) guarda quem conferiu sem apagar quem concluiu
 const marcar = (p, ids, s, comp, nota) => { const eu = S.user.nome || S.user.email, it = { s, ...(s === 'V' ? { cd: hoje(), cu: eu } : { d: hoje(), u: eu }), ...(nota !== undefined ? { n: nota } : {}) }; store.set('controle', `${comp}__${p.id}`, { comp, proc: p.id, itens: Object.fromEntries(ids.map(id => [id, it])) }, true); };
 export function resumoObrig(comp, lista = emps()) {
-  return procs().map(p => { const ap = lista.filter(e => aplica(p, e)), ss = ap.map(e => sit(p, e, comp)); return { p, total: ap.length, ok: ss.filter(s => FEITA.has(s)).length, conf: ss.filter(s => s === 'Conferida').length, erro: ss.filter(s => s === 'Com erro').length, atras: ss.filter(s => s === 'Atrasada').length, venc: venc(p, comp) }; }).filter(r => r.total);
+  return procs().map(p => { const ap = lista.filter(e => aplica(p, e, comp)), ss = ap.map(e => sit(p, e, comp)); return { p, total: ap.length, ok: ss.filter(s => FEITA.has(s)).length, conf: ss.filter(s => s === 'Conferida').length, erro: ss.filter(s => s === 'Com erro').length, atras: ss.filter(s => s === 'Atrasada').length, venc: venc(p, comp) }; }).filter(r => r.total);
 }
 export const barrasObrig = (rs) => rs.map(r => { const pc = r.total ? Math.round(r.ok / r.total * 100) : 0; return `<div class="prog"><div class="prog-t"><b>${esc(r.p.nome)}</b><span>${r.ok}/${r.total} · ${pc}%</span></div><div class="prog-b"><i style="width:${pc}%" class="${pc === 100 ? 'ok' : ''}"></i></div><small>${r.venc ? `Vence ${fmt.data(r.venc)}` : 'Sem vencimento definido'}${r.conf ? ` · ${r.conf} conferida(s)` : ''}${r.atras ? ` · <span class="tx-verm">${r.atras} atrasada(s)</span>` : ''}${r.erro ? ` · <span class="tx-verm">${r.erro} com erro</span>` : ''}</small></div>`; }).join('');
 
@@ -174,7 +174,7 @@ function cadastroObrig(el) {
 const rControle = el => abas(el, [{ id: 'ac', t: 'Acompanhamento', fn: acompanhamento }, { id: 'radar', t: 'Radar do departamento', fn: radar }, ...(isAdmin() ? [{ id: 'cad', t: 'Cadastro de obrigações', fn: cadastroObrig }] : [])], st.controle);
 
 // ================= ZERAMENTO E EXCLUSÃO DO SIMPLES =================
-const plan = () => emps().filter(e => e.area === 'Planejamento' && e.status !== 'Inativo');
+const plan = () => emps().filter(e => e.area === 'Planejamento' && ativa(e));
 const svPlan = (e, k, v, rot) => gravar('empresas', e.id, { ...semId(e), plan: { ...(e.plan || {}), [k]: v } }, `${rot}: ${e.razao}`);
 // zerar da Comp. Lucro até o mês anterior ao atual
 export const zer = e => { const c = e.plan?.compLucro; if (!c) return { pend: '', st: 'Sem Comp. Lucro' }; const ult = compAdd(mesAtual(), -1), z = e.plan?.zerAte, ini = z && z >= c ? compAdd(z, 1) : c, n = Math.max(0, compDiff(ini, ult) + 1); return { pend: n, st: n ? 'PENDENTE' : 'EM DIA' }; };
@@ -240,9 +240,10 @@ function rDemandas(el) {
 function rPainel(el) {
   const comp = compAtual(); if (can('controle')) assinarControle(comp); if (can('auditfiscal')) assinarComp('auditorias', comp);
   const desenha = () => {
-    const l = emps().filter(e => e.status !== 'Inativo'), n = f => l.filter(f).length; let h = `<p class="saud">Olá, <b>${esc((S.user.nome || '').split(' ')[0])}</b>. Hoje é ${fmt.data(hoje())} · competência em apuração: <b>${fmt.comp(comp)}</b>.</p>`;
+    const l = emps().filter(e => ativa(e)), n = f => l.filter(f).length; let h = `<p class="saud">Olá, <b>${esc((S.user.nome || '').split(' ')[0])}</b>. Hoje é ${fmt.data(hoje())} · competência em apuração: <b>${fmt.comp(comp)}</b>.</p>`;
     const alertas = [];
     if (can('empresas')) { for (const k of ['Pendente de responsável', 'Pendente de grupo', 'Pendente de área']) { const q = n(e => pendencia(e) === k); if (q) alertas.push([`${q} empresa(s): ${k.toLowerCase()}`, '#empresas']); } }
+    if (can('empresas')) { const sa = l.filter(e => e.saida?.ultComp === comp).length; if (sa) alertas.push([`${sa} empresa(s) em saída com última competência ${fmt.comp(comp)}: fechar e entregar tudo antes do repasse`, '#empresas']); }
     if (can('simples')) { const z = plan().filter(e => zer(e).pend > 0).length, x = plan().filter(e => ['Atrasada', 'Meta deste mês'].includes(exc(e))).length; if (z) alertas.push([`${z} empresa(s) com zeramento pendente`, '#simples']); if (x) alertas.push([`${x} exclusão(ões) do Simples com meta vencida ou neste mês`, '#simples']); }
     if (can('equipe')) { const fl = [...S.data.funcionarios.values()].map(f => [f, ferias(f)]).filter(([, x]) => x && (x.sit === 'Vencida' || x.sit === 'Alerta')).sort((a, b) => a[1].dias - b[1].dias); if (fl.length) alertas.push([`Férias: ${fl.length} colaborador(es) com prazo limite vencido ou a menos de 90 dias (${fl.slice(0, 3).map(([f, x]) => `${f.nome.split(' ')[0]} ${fmt.data(x.limite)}`).join(', ')}${fl.length > 3 ? '…' : ''})`, '#equipe']); }
     if (can('auditfiscal')) { const c = new Set([...S.data.auditorias.values()].filter(a => a.nivel === 'Crítico').map(a => a.emp)).size; if (c) alertas.unshift([`${c} empresa(s) com divergência crítica na auditoria XML × EFD de ${fmt.comp(comp)}`, '#auditfiscal']); }

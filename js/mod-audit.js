@@ -1,5 +1,5 @@
 // AUDITORIA XML × EFD: lê EFD ICMS/IPI e Contribuições (ReceitanetBX) e XMLs (SEFAZ), confronta e grava o resultado por empresa/competência.
-import { $, $$, esc, S, can, store, fmt, hoje, compAtual, compAdd, respNome, tipoRegime, audit, toast, modal, xlsxAttiva, loadScript, abas, quadro, assinarComp, audsDe, nivelAud } from './core.js';
+import { ativa, $, $$, esc, S, can, store, fmt, hoje, compAtual, compAdd, respNome, tipoRegime, audit, toast, modal, xlsxAttiva, loadScript, abas, quadro, assinarComp, audsDe, nivelAud } from './core.js';
 import { Grid } from './grid.js';
 import { spedParser, parseSped, parseXml, auditar, TIPOS } from './audit.js';
 
@@ -78,7 +78,7 @@ function resultados(el) {
   assinarComp('auditorias', st.comp);
   const rows = () => {
     const m = new Map();
-    for (const [id, e] of S.data.empresas) if (e.status !== 'Inativo' && e.area === 'Fiscal' && tipoRegime(e).startsWith('Lucro')) m.set(id, { id, e, as: audsDe(st.comp, id) });
+    for (const [id, e] of S.data.empresas) if (ativa(e, st.comp) && e.area === 'Fiscal' && tipoRegime(e).startsWith('Lucro')) m.set(id, { id, e, as: audsDe(st.comp, id) });
     for (const a of S.data.auditorias.values()) if (!m.has(a.emp)) m.set(a.emp, { id: a.emp, e: S.data.empresas.get(a.emp) || { razao: a.nome + ' (fora da base)', cnpj: a.emp }, as: audsDe(st.comp, a.emp) });
     return [...m.values()];
   };
