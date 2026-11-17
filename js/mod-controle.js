@@ -1,5 +1,5 @@
 // CONTROLE: Painel, Obrigações por competência, Zeramento/Exclusão do Simples, Demandas entre setores.
-import { $, $$, esc, S, can, isAdmin, store, fmt, hoje, mesAtual, compAdd, compAtual, compDiff, funcNome, respId, respNome, tipoRegime, pendencia, funcsAtivos, gravar, excluir, gravarLote, audit, toast, modal, confirmar, formModal, xlsxAttiva, abas, quadro, assinarControle, assinarComp, audsDe, nivelAud } from './core.js';
+import { $, $$, esc, norm, digits, parseData, importarPlanilha, S, can, isAdmin, store, fmt, hoje, mesAtual, compAdd, compAtual, compDiff, funcNome, respId, respNome, tipoRegime, pendencia, funcsAtivos, gravar, excluir, gravarLote, audit, toast, modal, confirmar, formModal, xlsxAttiva, abas, quadro, assinarControle, assinarComp, audsDe, nivelAud } from './core.js';
 import { Grid } from './grid.js';
 import { ferias, ferrVisiveis, cartoesFerr } from './mod-gestao.js';
 
@@ -42,7 +42,7 @@ function acompanhamento(el) {
         onSave: v => { const p = procs().find(x => x.id === v.p), ok = ids.filter(id => aplica(p, { id, ...S.data.empresas.get(id) })); marcar(p, ok, v.s, s.comp); audit('Lote', 'controle', `${s.comp}__${p.id}`, `${p.nome} ${fmt.comp(s.comp)}: ${ok.length} empresas → ${SIT_NOME[v.s]}`); toast(`${ok.length} empresas marcadas.`); },
       }),
     }] : [],
-    acoes: can('controle', 'exportar') ? [{ t: 'Resumo por responsável', on: gr => resumoResp(gr.viewRows, s.comp) }, { t: 'Exportar pendências', cls: 'pri', on: gr => exportarPend(gr.viewRows, s.comp) }, { t: 'Exportar', on: gr => gr.exportar() }] : [],
+    acoes: [...(can('controle', 'editar') ? [{ t: 'Importar do G-Click', on: () => importarGclick(s.comp) }] : []), ...(can('controle', 'exportar') ? [{ t: 'Resumo por responsável', on: gr => resumoResp(gr.viewRows, s.comp) }, { t: 'Exportar pendências', cls: 'pri', on: gr => exportarPend(gr.viewRows, s.comp) }, { t: 'Exportar', on: gr => gr.exportar() }] : [])],
     vazio: procs().length ? 'Nenhuma empresa da Rotina se enquadra nas obrigações cadastradas.' : 'Cadastre as obrigações na aba “Cadastro de obrigações” para começar o controle.',
   });
   if (!s.meu && !isAdmin() && funcNome(S.user.funcId)) { s.meu = true; g.f.resp = new Set([funcNome(S.user.funcId)]); } // colaborador abre na própria carteira
@@ -96,6 +96,35 @@ function radar(el) {
   el.innerHTML = `<p class="dica">Competência <b>${fmt.comp(s.comp)}</b> (troque na aba Acompanhamento). Concluído = o responsável marcou; Conferido = o líder revisou; Auditoria = confronto XML × EFD gravado na competência. Clique nos títulos para ordenar.</p><div class="quadros"></div><div class="gr"></div>`;
   g.mount($('.gr', el)); return () => g.refresh();
 }
+// Importa o relatório de tarefas do G-Click: concluída lá = Concluída aqui (não mexe em Conferida, Com erro nem Dispensada)
+function importarGclick(comp) {
+  importarPlanilha({
+    titulo: `Tarefas do G-Click · competência ${fmt.comp(comp)}`,
+    campos: [{ k: 'cli', label: 'Cliente (com CNPJ)', sin: ['Cliente', 'CNPJ', 'Empresa', 'Inscrição'], req: true }, { k: 'obr', label: 'Nome da tarefa / obrigação', sin: ['Nome', 'Obrigação', 'Tarefa', 'Obrigacao'], req: true }, { k: 'st', label: 'Status', sin: ['Status', 'Situação'], req: true }, { k: 'cmp', label: 'Competência (se houver)', sin: ['Competência', 'Competencia'] }, { k: 'dt', label: 'Data de conclusão', sin: ['Conclusão', 'Conclusao', 'Concluída em', 'Data conclusão', 'Data de conclusão'] }],
+    onImport: async linhas => {
+      const ps = procs().map(p => ({ p, al: [p.nome, ...String(p.gclick || '').split(';')].map(norm).filter(Boolean) })), acc = new Map(), semObr = new Map(); let semEmp = 0, fora = 0;
+      for (const l of linhas) {
+        if (l.cmp) { const c = l.cmp instanceof Date ? l.cmp.toISOString().slice(0, 7) : (String(l.cmp).match(/(\d{2})\/(\d{4})/) || []).slice(1).reverse().join('-'); if (c && c !== comp) { fora++; continue; } }
+        const ob = String(l.obr || '').trim(), hit = ps.find(x => x.al.includes(norm(ob))); if (!hit) { if (ob) semObr.set(ob, (semObr.get(ob) || 0) + 1); continue; }
+        const m = String(l.cli || '').match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/g), id = m ? digits(m.pop()) : digits(l.cli).padStart(14, '0');
+        if (!S.data.empresas.has(id)) { semEmp++; continue; }
+        const k = hit.p.id + '|' + id, o = acc.get(k) || acc.set(k, { p: hit.p, id, ok: true, dt: '' }).get(k);
+        if (/conclu/i.test(String(l.st))) o.dt = parseData(l.dt) || o.dt; else o.ok = false;
+      }
+      const porProc = new Map(); let conc = 0, reab = 0;
+      for (const o of acc.values()) {
+        const cur = item(o.p, { id: o.id }, comp), s = cur?.s || 'P'; let it;
+        if (o.ok && s === 'P') { it = { s: 'C', d: o.dt || hoje(), u: 'G-Click', g: true }; conc++; }
+        else if (!o.ok && s === 'C' && cur.g) { it = { s: 'P', d: hoje(), u: 'G-Click', g: true }; reab++; } // reaberta no G-Click
+        if (it) (porProc.get(o.p.id) || porProc.set(o.p.id, {}).get(o.p.id))[o.id] = it;
+      }
+      for (const [pid, itens] of porProc) store.set('controle', `${comp}__${pid}`, { comp, proc: pid, itens }, true);
+      audit('Lote', 'controle', comp, `Importação G-Click ${fmt.comp(comp)}: ${conc} concluídas, ${reab} reabertas, ${acc.size} tarefas reconhecidas`);
+      setTimeout(() => modal({ titulo: 'Importação do G-Click', html: `<p><b>${acc.size}</b> obrigações reconhecidas · <b>${conc}</b> marcadas como concluídas · <b>${reab}</b> reabertas.</p>${fora ? `<p class="dica">${fora} linha(s) de outra competência foram ignoradas.</p>` : ''}${semEmp ? `<p class="tx-verm">${semEmp} linha(s) de CNPJ que não está no cadastro de empresas.</p>` : ''}${semObr.size ? `<p class="tx-verm">Tarefas sem obrigação correspondente (informe o nome em Cadastro de obrigações › “Nome(s) da tarefa no G-Click”):</p><ul>${[...semObr].map(([n, q]) => `<li>${esc(n)} (${q})</li>`).join('')}</ul>` : ''}`, botoes: [{ t: 'Fechar', cls: 'pri' }] }), 80);
+      return conc + reab;
+    },
+  });
+}
 function pendencias(rows, comp) {
   const out = [];
   for (const e of rows) for (const p of procs()) { const x = sit(p, e, comp); if (x === 'Pendente' || x === 'Atrasada' || x === 'Com erro') out.push({ e, p, x, resp: respNome(e) || 'Sem responsável' }); }
@@ -128,7 +157,7 @@ function cadastroObrig(el) {
   const editar = p => {
     const m = formModal({
       titulo: p ? p.nome : 'Nova obrigação', valores: p ? { ...p, ativo: p.ativo !== false } : { ativo: true },
-      campos: [{ k: 'nome', label: 'Nome da obrigação', req: true, ph: 'Ex.: DAS, ICMS + EFD ICMS' }, { k: 'vencDia', label: 'Vence no dia (mês seguinte à competência)', type: 'number', ajuda: 'Deixe vazio se não quiser controle de atraso.' }, { k: 'ordem', label: 'Ordem na tela', type: 'number' }, { k: 'exigeIE', label: 'Só para quem tem I.E.', type: 'check', rot: 'Exige Inscrição Estadual' }, { k: 'ativo', label: 'Situação', type: 'check', rot: 'Obrigação ativa' }, { k: 'obs', label: 'Observação', type: 'textarea', full: true }],
+      campos: [{ k: 'nome', label: 'Nome da obrigação', req: true, ph: 'Ex.: DAS, ICMS + EFD ICMS' }, { k: 'gclick', label: 'Nome(s) da tarefa no G-Click', ph: 'Ex.: ICMS; EFD ICMS/IPI (DIA 15)', ajuda: 'Separe por ponto e vírgula. Com mais de uma tarefa, só conclui quando todas estiverem concluídas.' }, { k: 'vencDia', label: 'Vence no dia (mês seguinte à competência)', type: 'number', ajuda: 'Deixe vazio se não quiser controle de atraso.' }, { k: 'ordem', label: 'Ordem na tela', type: 'number' }, { k: 'exigeIE', label: 'Só para quem tem I.E.', type: 'check', rot: 'Exige Inscrição Estadual' }, { k: 'ativo', label: 'Situação', type: 'check', rot: 'Obrigação ativa' }, { k: 'obs', label: 'Observação', type: 'textarea', full: true }],
       extra: `<div class="campo full"><label>Regimes em que se aplica (nenhum marcado = todos)</label><div class="cols-exp">${REGIMES.map(r => `<label class="chk"><input type="checkbox" data-rg="${r}" ${p?.regimes?.includes(r) ? 'checked' : ''}> ${r}</label>`).join('')}</div></div>${p ? '<p><button type="button" class="btn perigo mini" data-del>Excluir obrigação</button></p>' : ''}`,
       onSave: (v, bg) => { if (v.vencDia !== '' && (v.vencDia < 1 || v.vencDia > 31)) return 'Dia de vencimento entre 1 e 31.'; gravar('processos', p?.id || store.newId(), { ...v, regimes: $$('[data-rg]:checked', bg).map(x => x.dataset.rg) }, v.nome); },
     });
@@ -136,8 +165,8 @@ function cadastroObrig(el) {
   };
   const g = grids.proc ||= new Grid({
     titulo: 'Obrigações', rows: () => [...S.data.processos].map(([id, p]) => ({ id, ...p })), onRow: isAdmin() ? editar : null,
-    cols: [{ key: 'ordem', label: 'Ordem', cls: 'num' }, { key: 'nome', label: 'Obrigação', w: 220 }, { key: 'reg', label: 'Regimes', get: p => p.regimes?.join(', ') || 'Todos' }, { key: 'ie', label: 'Exige I.E.', get: p => p.exigeIE ? 'Sim' : 'Não' }, { key: 'venc', label: 'Vence dia', cls: 'num', get: p => p.vencDia || '' }, { key: 'ativo', label: 'Ativa', get: p => p.ativo === false ? 'Não' : 'Sim' }, { key: 'obs', label: 'Observação', w: 240 }],
-    acoes: isAdmin() ? [{ t: 'Carregar sugestões', on: () => { if (S.data.processos.size) return toast('Já existem obrigações cadastradas.', 'erro'); gravarLote('processos', [['DAS', ['Simples Nacional'], false, 20], ['IRRF Aluguel', [], false, 20], ['ICMS + EFD ICMS', ['Lucro Presumido', 'Lucro Real'], true, '']].map(([nome, regimes, exigeIE, vencDia], i) => [store.newId(), { nome, regimes, exigeIE, vencDia, ordem: i + 1, ativo: true, obs: vencDia ? '' : 'Defina o dia de vencimento.' }]), 'Obrigações sugeridas'); } }, { t: '+ Nova obrigação', cls: 'pri', on: () => editar() }] : [],
+    cols: [{ key: 'ordem', label: 'Ordem', cls: 'num' }, { key: 'nome', label: 'Obrigação', w: 220 }, { key: 'gclick', label: 'Tarefa no G-Click', w: 200 }, { key: 'reg', label: 'Regimes', get: p => p.regimes?.join(', ') || 'Todos' }, { key: 'ie', label: 'Exige I.E.', get: p => p.exigeIE ? 'Sim' : 'Não' }, { key: 'venc', label: 'Vence dia', cls: 'num', get: p => p.vencDia || '' }, { key: 'ativo', label: 'Ativa', get: p => p.ativo === false ? 'Não' : 'Sim' }, { key: 'obs', label: 'Observação', w: 240 }],
+    acoes: isAdmin() ? [{ t: 'Carregar sugestões', on: () => { if (S.data.processos.size) return toast('Já existem obrigações cadastradas.', 'erro'); gravarLote('processos', [['DAS', ['Simples Nacional'], false, 20, 'DAS SIMPLES'], ['IRRF Aluguel', [], false, 20, 'IRRF SOBRE ALUGUEL'], ['ICMS + EFD ICMS', ['Lucro Presumido', 'Lucro Real'], true, '', 'ICMS; EFD ICMS/IPI (DIA 15)']].map(([nome, regimes, exigeIE, vencDia, gclick], i) => [store.newId(), { nome, regimes, exigeIE, vencDia, gclick, ordem: i + 1, ativo: true, obs: vencDia ? '' : 'Defina o dia de vencimento.' }]), 'Obrigações sugeridas'); } }, { t: '+ Nova obrigação', cls: 'pri', on: () => editar() }] : [],
     vazio: 'Nenhuma obrigação cadastrada. Use “Carregar sugestões” ou “+ Nova obrigação”.',
   });
   el.innerHTML = '<p class="dica">Cada obrigação vira uma coluna no acompanhamento. A competência é o mês apurado; o vencimento cai no mês seguinte. Confira os dias de vencimento antes de usar.</p><div class="gr"></div>'; g.mount($('.gr', el)); return () => g.refresh();
