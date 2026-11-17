@@ -35,7 +35,7 @@ service cloud.firestore {
     match /empresas/{id} {
       allow read: if pode(['empresas', 'carteiras', 'controle', 'simples', 'auditfiscal'], 'ver');
       allow create: if pode(['empresas'], 'criar');
-      allow update: if pode(['empresas', 'simples'], 'editar');
+      allow update: if pode(['empresas', 'simples'], 'editar');                // Planejamento edita na própria empresa
       allow delete: if pode(['empresas'], 'excluir');
     }
     match /funcionarios/{id} {

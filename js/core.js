@@ -18,7 +18,7 @@ const TODAS = ['ver', 'criar', 'editar', 'excluir', 'exportar'];
 export const MODS = [
   { id: 'controle', nome: 'Obrigações', grupo: 'CONTROLE', acoes: ['ver', 'editar', 'conferir', 'exportar'] },
   { id: 'auditfiscal', nome: 'Auditoria XML × EFD', grupo: 'CONTROLE', acoes: ['ver', 'editar', 'exportar'] },
-  { id: 'simples', nome: 'Zeramento e Exclusão', grupo: 'CONTROLE', acoes: ['ver', 'editar', 'exportar'] },
+  { id: 'simples', nome: 'Planejamento', grupo: 'CONTROLE', acoes: ['ver', 'editar', 'exportar'] },
   { id: 'demandas', nome: 'Demandas entre setores', grupo: 'CONTROLE', acoes: TODAS },
   { id: 'empresas', nome: 'Empresas', grupo: 'GESTÃO', acoes: TODAS },
   { id: 'carteiras', nome: 'Carteiras', grupo: 'GESTÃO', acoes: ['ver', 'exportar'] },

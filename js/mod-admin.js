@@ -128,8 +128,8 @@ function migrarAntiga(b) {
     if (e.inat) { const i = e.inat; e.saida = { ultComp: i.ultComp || '', comunicadoEm: i.comunicadoEm || '', ci: i.ciInat || '', motivo: i.motivo || '' }; delete e.inat; } // saiu ou vai sair
     if (/^inativ/i.test(e.status || '')) e.status = 'Inativo';
     e.resp = Object.fromEntries(Object.entries(e.resp || {}).filter(([k, v]) => v && k === e.area));
-    if (z) { if (z.ultZerado) e.plan.zerAte = z.ultZerado; if (z.zerObs) e.plan.zerObs = z.zerObs; }
-    if (x) { e.plan.exc = x; e.plan.excObs = [x.excStatus, x.excDecisao, x.excResultado, x.excObs].filter(Boolean).join(' · '); if (!e.plan.meta && x.excMes) e.plan.meta = x.excMes; }
+    if (z) { const { cli, ...r } = z; e.zer = r; } // zeramento do Simples (último zerado, observação, faturamento retomado)
+    if (x) { const { cli, ...r } = x; e.exc = r; } // exclusão do Simples (situação, resultado, decisão, termo, período, observação)
     if (e.nivel && e.nivel.n != null) e.dificuldade = e.nivel.n;
     if (TIPO[e.segmento]) e.tipo = TIPO[e.segmento];
     if (!e.status) e.status = 'Ativo';

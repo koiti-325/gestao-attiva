@@ -2,8 +2,9 @@
 import { ativa, $, $$, esc, norm, digits, parseData, importarPlanilha, S, can, isAdmin, store, fmt, hoje, mesAtual, compAdd, compAtual, compDiff, funcNome, respId, respNome, tipoRegime, pendencia, funcsAtivos, gravar, excluir, gravarLote, audit, toast, modal, confirmar, formModal, xlsxAttiva, abas, quadro, assinarControle, assinarComp, audsDe, nivelAud } from './core.js';
 import { Grid } from './grid.js';
 import { ferias, ferrVisiveis, cartoesFerr } from './mod-gestao.js';
+import { alertasPlan, automacoes } from './mod-plan.js';
 
-const st = { controle: { comp: compAtual() }, simples: {} }, grids = {};
+const st = { controle: { comp: compAtual() } }, grids = {};
 const emps = () => [...S.data.empresas].map(([id, e]) => ({ id, ...e }));
 const semId = ({ id, ...e }) => e;
 const REGIMES = ['Simples Nacional', 'Lucro Presumido', 'Lucro Real'];
@@ -173,40 +174,6 @@ function cadastroObrig(el) {
 }
 const rControle = el => abas(el, [{ id: 'ac', t: 'Acompanhamento', fn: acompanhamento }, { id: 'radar', t: 'Radar do departamento', fn: radar }, ...(isAdmin() ? [{ id: 'cad', t: 'Cadastro de obrigações', fn: cadastroObrig }] : [])], st.controle);
 
-// ================= ZERAMENTO E EXCLUSÃO DO SIMPLES =================
-const plan = () => emps().filter(e => e.area === 'Planejamento' && ativa(e));
-const svPlan = (e, k, v, rot) => gravar('empresas', e.id, { ...semId(e), plan: { ...(e.plan || {}), [k]: v } }, `${rot}: ${e.razao}`);
-// zerar da Comp. Lucro até o mês anterior ao atual
-export const zer = e => { const c = e.plan?.compLucro; if (!c) return { pend: '', st: 'Sem Comp. Lucro' }; const ult = compAdd(mesAtual(), -1), z = e.plan?.zerAte, ini = z && z >= c ? compAdd(z, 1) : c, n = Math.max(0, compDiff(ini, ult) + 1); return { pend: n, st: n ? 'PENDENTE' : 'EM DIA' }; };
-export const exc = e => { const m = e.plan?.meta; if (e.sn?.sit === 'Excluída') return 'Excluída'; if (!m) return 'Sem meta'; return m < mesAtual() ? 'Atrasada' : m === mesAtual() ? 'Meta deste mês' : 'No prazo'; };
-const mes = (k, rot) => ({ type: 'month', get: e => e.plan?.[k] || '', save: (e, v) => svPlan(e, k, v, rot) });
-function gridZer(el) {
-  const s = st.simples;
-  const g = grids.zer ||= new Grid({
-    titulo: 'Zeramento do Simples', podeEditar: can('simples', 'editar'), exportar: can('simples', 'exportar'), rows: () => plan().filter(e => s.zTodas || e.plan?.compLucro),
-    cols: [{ key: 'pend', label: 'Pendentes', cls: 'num', get: e => zer(e).pend, html: e => { const z = zer(e); return z.pend ? `<span class="chip verm">${z.pend}</span>` : esc(z.pend); } }, { key: 'st', label: 'Status', get: e => zer(e).st, html: e => { const x = zer(e).st; return `<span class="chip ${x === 'EM DIA' ? 'verde' : x === 'PENDENTE' ? 'verm' : 'cinza'}">${x}</span>`; } },
-      { key: 'razao', label: 'Empresa', w: 240 }, { key: 'cnpj', label: 'CNPJ', get: e => fmt.cnpj(e.cnpj), w: 140 }, { key: 'resp', label: 'Responsável', get: respNome },
-      { key: 'cl', label: 'Comp. Lucro', get: e => fmt.comp(e.plan?.compLucro), sort: e => e.plan?.compLucro || '', edit: mes('compLucro', 'Comp. Lucro') }, { key: 'za', label: 'Zerado até', get: e => fmt.comp(e.plan?.zerAte), sort: e => e.plan?.zerAte || '', edit: mes('zerAte', 'Zeramento') },
-      { key: 'sn', label: 'Situação SN', get: e => e.sn?.txt || e.sn?.sit || '' }, { key: 'zo', label: 'Observação', w: 240, get: e => e.plan?.zerObs || '', edit: { type: 'text', save: (e, v) => svPlan(e, 'zerObs', v, 'Zeramento') } }],
-    acoes: [{ t: 'Mostrar todas do Planejamento', on: gr => { s.zTodas = !s.zTodas; gr.refresh(); toast(s.zTodas ? 'Mostrando todas as empresas do Planejamento.' : 'Mostrando só empresas com Comp. Lucro.'); } }],
-  });
-  g.sorts.length || g.sorts.push({ k: 'pend', d: -1 });
-  el.innerHTML = '<p class="dica">Zerar a partir da Comp. Lucro até o mês anterior ao atual. EM DIA = declarada zerada até a última competência. Clique em Comp. Lucro, Zerado até ou Observação para editar direto na célula.</p><div class="gr"></div>'; g.mount($('.gr', el)); return () => g.refresh();
-}
-function gridExc(el) {
-  const s = st.simples;
-  const g = grids.exc ||= new Grid({
-    titulo: 'Exclusão do Simples', podeEditar: can('simples', 'editar'), exportar: can('simples', 'exportar'), rows: () => plan().filter(e => s.eTodas || (e.plan?.meta && e.plan.meta <= mesAtual() && e.sn?.sit !== 'Excluída')),
-    cols: [{ key: 'st', label: 'Status', get: exc, html: e => { const x = exc(e); return `<span class="chip ${x === 'Excluída' ? 'verde' : x === 'Atrasada' ? 'verm' : x === 'Meta deste mês' ? 'ouro' : 'cinza'}">${x}</span>`; } }, { key: 'razao', label: 'Empresa', w: 240 }, { key: 'cnpj', label: 'CNPJ', get: e => fmt.cnpj(e.cnpj), w: 140 }, { key: 'resp', label: 'Responsável', get: respNome },
-      { key: 'meta', label: 'META', get: e => fmt.comp(e.plan?.meta), sort: e => e.plan?.meta || '', edit: mes('meta', 'Meta de exclusão') }, { key: 'sn', label: 'Situação SN', get: e => e.sn?.txt || e.sn?.sit || '' }, { key: 'ex', label: 'Excluída em', get: e => fmt.data(e.sn?.excluidaEm) },
-      { key: 'eo', label: 'Observação', w: 260, get: e => e.plan?.excObs || '', edit: { type: 'text', save: (e, v) => svPlan(e, 'excObs', v, 'Exclusão') } }],
-    acoes: [{ t: 'Mostrar todas do Planejamento', on: gr => { s.eTodas = !s.eTodas; gr.refresh(); toast(s.eTodas ? 'Mostrando todas as empresas do Planejamento.' : 'Mostrando só metas até o mês atual, ainda não excluídas.'); } }],
-  });
-  g.sorts.length || g.sorts.push({ k: 'meta', d: 1 });
-  el.innerHTML = '<p class="dica">Aparecem as empresas com META até o mês atual que ainda não foram excluídas. A situação do Simples vem do cadastro da empresa.</p><div class="gr"></div>'; g.mount($('.gr', el)); return () => g.refresh();
-}
-const rSimples = el => abas(el, [{ id: 'zer', t: 'Zeramento do Simples', fn: gridZer }, { id: 'exc', t: 'Exclusão do Simples', fn: gridExc }], st.simples);
-
 // ================= DEMANDAS ENTRE SETORES =================
 const DEPS = ['Contábil', 'Departamento Pessoal', 'Societário', 'Cadastro', 'Financeiro'];
 const demSit = d => ['Concluída', 'Cancelada'].includes(d.status) ? d.status : d.prazo && d.prazo < hoje() ? 'Atrasada' : d.status || 'Aberta';
@@ -244,7 +211,7 @@ function rPainel(el) {
     const alertas = [];
     if (can('empresas')) { for (const k of ['Pendente de responsável', 'Pendente de grupo', 'Pendente de área']) { const q = n(e => pendencia(e) === k); if (q) alertas.push([`${q} empresa(s): ${k.toLowerCase()}`, '#empresas']); } }
     if (can('empresas')) { const sa = l.filter(e => e.saida?.ultComp === comp).length; if (sa) alertas.push([`${sa} empresa(s) em saída com última competência ${fmt.comp(comp)}: fechar e entregar tudo antes do repasse`, '#empresas']); }
-    if (can('simples')) { const z = plan().filter(e => zer(e).pend > 0).length, x = plan().filter(e => ['Atrasada', 'Meta deste mês'].includes(exc(e))).length; if (z) alertas.push([`${z} empresa(s) com zeramento pendente`, '#simples']); if (x) alertas.push([`${x} exclusão(ões) do Simples com meta vencida ou neste mês`, '#simples']); }
+    if (can('simples')) { automacoes(); alertas.push(...alertasPlan()); }
     if (can('equipe')) { const fl = [...S.data.funcionarios.values()].map(f => [f, ferias(f)]).filter(([, x]) => x && (x.sit === 'Vencida' || x.sit === 'Alerta')).sort((a, b) => a[1].dias - b[1].dias); if (fl.length) alertas.push([`Férias: ${fl.length} colaborador(es) com prazo limite vencido ou a menos de 90 dias (${fl.slice(0, 3).map(([f, x]) => `${f.nome.split(' ')[0]} ${fmt.data(x.limite)}`).join(', ')}${fl.length > 3 ? '…' : ''})`, '#equipe']); }
     if (can('auditfiscal')) { const c = new Set([...S.data.auditorias.values()].filter(a => a.nivel === 'Crítico').map(a => a.emp)).size; if (c) alertas.unshift([`${c} empresa(s) com divergência crítica na auditoria XML × EFD de ${fmt.comp(comp)}`, '#auditfiscal']); }
     if (can('demandas')) { const a = dems().filter(d => demSit(d) === 'Atrasada').length; if (a) alertas.push([`${a} demanda(s) entre setores atrasada(s)`, '#demandas']); }
@@ -267,5 +234,5 @@ function rPainel(el) {
 
 export const rotas = {
   painel: { titulo: 'Painel', render: rPainel }, controle: { titulo: 'Obrigações', render: rControle },
-  simples: { titulo: 'Zeramento e Exclusão do Simples', render: rSimples }, demandas: { titulo: 'Demandas entre setores', render: rDemandas },
+demandas: { titulo: 'Demandas entre setores', render: rDemandas },
 };

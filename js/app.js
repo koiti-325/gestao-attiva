@@ -4,9 +4,10 @@ import { rotas as rc } from './mod-controle.js';
 import { rotas as rg } from './mod-gestao.js';
 import { rotas as ra, PERFIS_PADRAO } from './mod-admin.js';
 import { rotas as rf } from './mod-audit.js';
+import { rotas as rp } from './mod-plan.js';
 import { APP_VERSION } from './config.js';
 
-const ROTAS = { ...rc, ...rf, ...rg, ...ra };
+const ROTAS = { ...rc, ...rp, ...rf, ...rg, ...ra };
 const ADMIN = [['usuarios', 'Usuários'], ['perfis', 'Perfis e permissões'], ['historico', 'Histórico de alterações'], ['sistema', 'Backup e sistema']];
 const DEP = { empresas: ['empresas', 'carteiras', 'controle', 'simples', 'auditfiscal'], funcionarios: ['equipe', 'empresas', 'carteiras', 'controle', 'simples', 'demandas', 'auditfiscal'], processos: ['controle'], demandas: ['demandas'], ferramentas: ['ferramentas'] };
 let refresh = null, iniciado = false, criando = false, unUser, unPerfil, perfilAtual, sujo = false, timer, acessoGravado = false;
