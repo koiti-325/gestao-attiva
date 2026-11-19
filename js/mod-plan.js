@@ -22,7 +22,7 @@ export function zerCalc(e) {
   return { start: cl, pend };
 }
 const pendTxt = z => !z.start ? 'Informe a Comp. Lucro' : z.pend.length ? `${fmt.comp(z.pend[0])}${z.pend.length > 1 ? ' a ' + fmt.comp(z.pend.at(-1)) : ''} (${z.pend.length} ${z.pend.length > 1 ? 'meses' : 'mês'})` : 'EM DIA';
-const zerAcomp = e => ativa(e) && (isPlan(e) || !!e.zer || !!P(e).transicao || !!P(e).meta || !!P(e).voltaPlan);
+const zerAcomp = e => ativa(e) && !pendRet(e) && (isPlan(e) || !!e.zer || !!P(e).transicao || !!P(e).meta || !!P(e).voltaPlan);
 const zerFase = e => isPlan(e) ? 'No Planejamento' : pendRet(e) ? 'Na Rotina · retorno agendado' : P(e).transicao ? 'Na Rotina · desde ' + fmt.data(P(e).transicao.em) : 'Na Rotina';
 const fatDec = e => X(e).excDecisao || P(e).transicao?.decisao || '';
 const fatAl = e => fatDec(e) === 'FICAR NO SN' ? (Z(e).fatVolta ? 'Faturamento retomado em ' + fmt.comp(Z(e).fatVolta) : 'Voltar faturamento') : '';
